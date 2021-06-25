@@ -9,7 +9,7 @@
  * https://blog.naver.com/bflownet
  * https://cafe.naver.com/laserinvestors
  * 
- * Version:      0.1.0
+ * Version:      0.1.2
  * 
  * Copyright:    (c) 2021- by JaeWook Choi
  * 
@@ -61,9 +61,96 @@
  * Revision History                                                               *
  * ********************************************************************************
  * 0.1.0      2021.06.06  Initial release
+ * 0.1.1      2021.06.15  FXCompare() added
+ *                        FlipArray(), optional headerRow input argument
+ *                        OptionObject(), convert array-value [] into object-key-value {}
+ * 0.1.2      2021.06.24  big bug fix in ADX()
  *   
  */
 
+
+/**
+ * FXCompare
+ * 
+ * return an array with function expression comparison
+ * 
+ * @param {array} arrayFirst input array for the first
+ * @param {number} columnFirst index for the value column (usually close price) in the first array
+ * @param {array} arraySecond input array for the second
+ * @param {number} columnSecond index for the value column (usually close price) in the second array
+ * @param {string} functionExpression one of four predefined function expressions "add", "substract", "multiply" or "divide"  
+ * @return an array with the provided function expression between first and second, [FX:funciontExpression]
+ * @customfunction
+ */
+function FXCompare(arrayFirst, columnFirst, arraySecond, columnSecond, functionExpression) {
+  // check if input arguments
+  if (arguments.length < 5) throw new Error("more arguments are required");
+  if (arrayFirst.map == null) throw new Error("arrayInput is not an array");
+  if (arraySecond.map == null) throw new Error("arrayInput is not an array");
+  if (arrayFirst.length < 2) throw new Error("arrayInput length should be greater");
+  if (arrayFirst.length != arraySecond.length) throw new Error("horizontal (time serie) size of both input array should be the same");
+  if (columnFirst > arrayFirst.length - 1) throw new Error("columnFirst is set out of range");
+  if (columnSecond > arraySecond.length - 1) throw new Error("columnSecond is set out of range");
+
+  var i = 0, arrayResult = [], rIndex = arrayFirst[0].length + arraySecond[0].length - 1;
+
+  //
+  // Stage 1: Header copy
+  // 
+  // copy column headers
+  arrayResult[0] = arrayFirst[0];
+  for (var j in arraySecond[0]) arrayResult[0].push(arraySecond[0][j]);
+
+  // add result column headers
+  arrayResult[0].push("FX:" + functionExpression.toLowerCase());
+
+  i++;
+
+  //
+  // Stage 2: Find the first index to start ROR at
+  //
+  var arraySkip = 0;
+  for (; i < arraySkip + 1; i++) {
+    // no ROR calculation, just copy input array over
+    arrayResult[i] = arrayFirst[i];
+    for (var j in arraySecond[i]) arrayResult[i].push(arraySecond[i][j]);
+
+    // skip empty data index
+    if (!arrayFirst[i][columnFirst]) arraySkip++;
+  }
+
+  //
+  // Stage 3: Calculate per function expression provided
+  //
+  for (; i < arrayFirst.length; i++) {
+    arrayResult[i] = arrayFirst[i];
+    for (var j in arraySecond[i]) arrayResult[i].push(arraySecond[i][j]);
+
+    switch (functionExpression.toLowerCase()) {
+      case "add":
+        arrayResult[i].push(arrayFirst[i][columnFirst] + arraySecond[i][columnSecond]);
+        break;
+
+      case "substract":
+        arrayResult[i].push(arrayFirst[i][columnFirst] - arraySecond[i][columnSecond]);
+        break;
+
+      case "multiply":
+        arrayResult[i].push(arrayFirst[i][columnFirst] * arraySecond[i][columnSecond]);
+        break;
+
+      case "divide":
+        arrayResult[i].push(arrayFirst[i][columnFirst] / arraySecond[i][columnSecond]);
+        break;
+
+      default:
+        throw new Error("invalid fuction expression string is provided");
+    }
+
+  }
+
+  return arrayResult;
+}
 
 /**
  * Relative Rotation Graph
@@ -196,7 +283,6 @@ function RRG(arrayFirst, columnFirst, arraySecond, columnSecond, lookBackWeek = 
 function PerRatio(arrayFirst, columnFirst, arraySecond, columnSecond) {
   // check if input arguments
   if (arguments.length < 4) throw new Error("more arguments are required");
-
   if (arrayFirst.map == null) throw new Error("arrayInput is not an array");
   if (arraySecond.map == null) throw new Error("arrayInput is not an array");
   if (arrayFirst.length < 2) throw new Error("arrayInput length should be greater");
@@ -1340,17 +1426,20 @@ function MACD(arrayInput, arrayColumn, lookBackFast = 12, lookBackSlow = 26, loo
  * return an array with ADX
  * 
  * @param {array} arrayInput input array, firt 6 column of the input array should be DOHLCV format (Date, Open, High, Low, Close, Volume)
- * @param {number} lookBack [OPTIONAL] 14 by default, look back period for ADX calculation
- * @return an array with ADX, [TR, DM+, DM-, DI+, DI-, ADX]
+ * @param {number} lookBackTR [OPTIONAL] 14 by default, look back period for TR, DM+, DM-
+ * @param {number} lookBackADX [OPTIONAL] 14 by default, look back period for ADX calculation
+ * @return an array with ADX, [DI+, DI-, ADX]
  * @customfunction
  */
-function ADX(arrayInput, lookBack = 14) {
+function ADX(arrayInput, lookBackTR = 14, lookBackADX = 14) {
   // check if input arguments
-  if (arguments.length < 2) throw new Error("more arguments are required");
+  if (arguments.length < 1) throw new Error("more arguments are required");
   if (arrayInput.map == null) throw new Error("arrayInput is not an array");
-  if (arrayInput.length < lookBack + 2) throw new Error("arrayInput length should be greater");
+  if (arrayInput.length < lookBackTR + lookBackADX + 1) throw new Error("arrayInput length should be greater");
 
   var i = 0, arrayResult = [], rIndex = arrayInput[0].length - 1;
+
+  var smoothingTR = 1 / lookBackTR, smoothingADX = 1 / lookBackADX;
 
   //
   // Stage 1: Header copy
@@ -1359,34 +1448,112 @@ function ADX(arrayInput, lookBack = 14) {
   arrayResult[0] = arrayInput[0];
 
   // add result column headers
-  arrayResult[0].push("TR", "DM+", "DM-", "DI+", "DI-", "ADX");
+  arrayResult[0].push("DI+", "DI-", "ADX");
   i++;
 
+  var arrayTrueRange = [], arrayDirMovePlus = [], arrayDirMoveMinus = [];
   //
-  // Stage 2: Find the first index to start ADX at
+  // Stage 2: Find the first index to start TR at
   //
-  var arraySkip = 0, trueRange = 0, dirMovePlus = 0, dirMoveMinus = 0;
-  for (; i < lookBack + arraySkip + 1; i++) {
-    // no ADX calculation, just copy input array over
+  var arraySkip = 0;
+  for (; i < lookBackTR + arraySkip + 1; i++) {
+    // copy input array over
     arrayResult[i] = arrayInput[i];
 
-    if (trueRange) {
-      arrayResult[i][rIndex + 1] = trueRange;
-      arrayResult[i][rIndex + 2] = dirMovePlus;
-      arrayResult[i][rIndex + 3] = dirMoveMinus;
-    }
-
-    // skip empty data index and calculate True Range
+    // skip empty data index
     if (!arrayInput[i][CLOSE]) { arraySkip++; }
     else {
-      trueRange = Math.max(arrayInput[i + 1][HIGH] - arrayInput[i + 1][LOW], arrayInput[i + 1][HIGH] - arrayInput[i][CLOSE], arrayInput[i][CLOSE] - arrayInput[i + 1][LOW]);
-      dirMovePlus = arrayInput[i + 1][HIGH] - arrayInput[i][HIGH] > arrayInput[i][LOW] - arrayInput[i + 1][LOW] ? arrayInput[i + 1][HIGH] - arrayInput[i][HIGH] : 0;
-      dirMoveMinus = arrayInput[i + 1][HIGH] - arrayInput[i][HIGH] < arrayInput[i][LOW] - arrayInput[i + 1][LOW] ? arrayInput[i][LOW] - arrayInput[i + 1][LOW] : 0;
+      // calcualte TR1, DM1+, DM1- and store into array for MA calculation later
+      arrayTrueRange.push(Math.max(arrayInput[i + 1][HIGH] - arrayInput[i + 1][LOW], arrayInput[i + 1][HIGH] - arrayInput[i][CLOSE], arrayInput[i][CLOSE] - arrayInput[i + 1][LOW]));
+      arrayDirMovePlus.push(arrayInput[i + 1][HIGH] - arrayInput[i][HIGH] > arrayInput[i][LOW] - arrayInput[i + 1][LOW] ? arrayInput[i + 1][HIGH] - arrayInput[i][HIGH] : 0);
+      arrayDirMoveMinus.push(arrayInput[i + 1][HIGH] - arrayInput[i][HIGH] < arrayInput[i][LOW] - arrayInput[i + 1][LOW] ? arrayInput[i][LOW] - arrayInput[i + 1][LOW] : 0);
     }
   }
 
   //
-  // Stage 3: Calculate Average Directional Index
+  // Stage 3: Calculate MA of TR14, DM14+, DM14-, DI+, DI-, DX
+  //
+
+  //
+  // First MA is SMA for TR14, DM14+, DM14-
+  //
+  arrayResult[i] = arrayInput[i];
+
+  // SMA
+  var turRangeMA = __VAvg(arrayTrueRange);
+  var dirMovePlusMA = __VAvg(arrayDirMovePlus);
+  var dirMoveMinusMA = __VAvg(arrayDirMoveMinus);
+
+  var dirIndexPlus = dirMovePlusMA / turRangeMA;
+  var dirIndexMinus = dirMoveMinusMA / turRangeMA;
+
+  var dirIndex = Math.abs(dirIndexPlus - dirIndexMinus) / (dirIndexPlus + dirIndexMinus);
+
+  var arrayDirIndex = [];
+
+  arrayDirIndex.push(dirIndex);
+
+  arrayResult[i].push(dirIndexPlus, dirIndexMinus);
+
+  i++;
+
+  //
+  // Wilder's MA for TR14, DM14+, DM14- for the rest
+  //
+  var trueRange = 0, dirMovePlus = 0, dirMoveMinus = 0;
+  for (; i < lookBackTR + lookBackADX; i++) {
+    arrayResult[i] = arrayInput[i];
+
+    trueRange = Math.max(arrayResult[i][HIGH] - arrayResult[i][LOW], arrayResult[i][HIGH] - arrayResult[i - 1][CLOSE], arrayResult[i - 1][CLOSE] - arrayResult[i][LOW]);
+    dirMovePlus = arrayResult[i][HIGH] - arrayResult[i - 1][HIGH] > arrayResult[i - 1][LOW] - arrayResult[i][LOW] ? arrayResult[i][HIGH] - arrayResult[i - 1][HIGH] : 0;
+    dirMoveMinus = arrayResult[i][HIGH] - arrayResult[i - 1][HIGH] < arrayResult[i - 1][LOW] - arrayResult[i][LOW] ? arrayResult[i - 1][LOW] - arrayResult[i][LOW] : 0;
+
+    // Wilder's MA
+    turRangeMA = smoothingTR * trueRange + (1 - smoothingTR) * turRangeMA;
+    dirMovePlusMA = smoothingTR * dirMovePlus + (1 - smoothingTR) * dirMovePlusMA;
+    dirMoveMinusMA = smoothingTR * dirMoveMinus + (1 - smoothingTR) * dirMoveMinusMA;
+
+    dirIndexPlus = dirMovePlusMA / turRangeMA;
+    dirIndexMinus = dirMoveMinusMA / turRangeMA;
+
+    dirIndex = Math.abs(dirIndexPlus - dirIndexMinus) / (dirIndexPlus + dirIndexMinus);
+    arrayDirIndex.push(dirIndex);
+
+    arrayResult[i].push(dirIndexPlus, dirIndexMinus);
+  }
+
+  //
+  // Stage 4 calculate ADX, MA of DX
+  //
+
+  //
+  // First MA is SMA for ADX
+  //
+  arrayResult[i] = arrayInput[i];
+
+  trueRange = Math.max(arrayResult[i][HIGH] - arrayResult[i][LOW], arrayResult[i][HIGH] - arrayResult[i - 1][CLOSE], arrayResult[i - 1][CLOSE] - arrayResult[i][LOW]);
+  dirMovePlus = arrayResult[i][HIGH] - arrayResult[i - 1][HIGH] > arrayResult[i - 1][LOW] - arrayResult[i][LOW] ? arrayResult[i][HIGH] - arrayResult[i - 1][HIGH] : 0;
+  dirMoveMinus = arrayResult[i][HIGH] - arrayResult[i - 1][HIGH] < arrayResult[i - 1][LOW] - arrayResult[i][LOW] ? arrayResult[i - 1][LOW] - arrayResult[i][LOW] : 0;
+
+  turRangeMA = smoothingTR * trueRange + (1 - smoothingTR) * turRangeMA;
+  dirMovePlusMA = smoothingTR * dirMovePlus + (1 - smoothingTR) * dirMovePlusMA;
+  dirMoveMinusMA = smoothingTR * dirMoveMinus + (1 - smoothingTR) * dirMoveMinusMA;
+
+  dirIndexPlus = dirMovePlusMA / turRangeMA;
+  dirIndexMinus = dirMoveMinusMA / turRangeMA;
+
+  dirIndex = Math.abs(dirIndexPlus - dirIndexMinus) / (dirIndexPlus + dirIndexMinus); 
+  arrayDirIndex.push(dirIndex);
+
+  // SMA
+  var averageDirIndex = __VAvg(arrayDirIndex);
+
+  arrayResult[i].push(dirIndexPlus, dirIndexMinus, averageDirIndex);
+
+  i++
+
+  //
+  // Wilder's MA for ADX for the rest
   //
   for (; i < arrayInput.length; i++) {
     arrayResult[i] = arrayInput[i];
@@ -1395,19 +1562,19 @@ function ADX(arrayInput, lookBack = 14) {
     dirMovePlus = arrayResult[i][HIGH] - arrayResult[i - 1][HIGH] > arrayResult[i - 1][LOW] - arrayResult[i][LOW] ? arrayResult[i][HIGH] - arrayResult[i - 1][HIGH] : 0;
     dirMoveMinus = arrayResult[i][HIGH] - arrayResult[i - 1][HIGH] < arrayResult[i - 1][LOW] - arrayResult[i][LOW] ? arrayResult[i - 1][LOW] - arrayResult[i][LOW] : 0;
 
-    arrayResult[i].push(trueRange, dirMovePlus, dirMoveMinus);
+    turRangeMA = smoothingTR * trueRange + (1 - smoothingTR) * turRangeMA;
+    dirMovePlusMA = smoothingTR * dirMovePlus + (1 - smoothingTR) * dirMovePlusMA;
+    dirMoveMinusMA = smoothingTR * dirMoveMinus + (1 - smoothingTR) * dirMoveMinusMA;
 
-    // calculate DI+, DI-, ADX
+    dirIndexPlus = dirMovePlusMA / turRangeMA;
+    dirIndexMinus = dirMoveMinusMA / turRangeMA;
 
-    var lbStart = i - lookBack + 1;
-    var sumTR = __HSum(arrayResult, rIndex + 1, lbStart, lookBack);
+    dirIndex = Math.abs(dirIndexPlus - dirIndexMinus) / (dirIndexPlus + dirIndexMinus);
 
-    var dirIndexPlus = __HSum(arrayResult, rIndex + 2, lbStart, lookBack) / sumTR;
-    var dirIndexMinus = __HSum(arrayResult, rIndex + 3, lbStart, lookBack) / sumTR;
+    // Wilder's MA
+    averageDirIndex = smoothingADX * dirIndex + (1 - smoothingADX) * averageDirIndex;
 
-    var avgDirIndex = Math.abs(dirIndexPlus - dirIndexMinus) / (dirIndexPlus + dirIndexMinus);
-
-    arrayResult[i].push(dirIndexPlus, dirIndexMinus, avgDirIndex);
+    arrayResult[i].push(dirIndexPlus, dirIndexMinus, averageDirIndex);
   }
 
   return arrayResult;
@@ -1781,18 +1948,22 @@ function ROC(arrayInput, arrayColumn, lookBack = 1, logReturn = false) {
  * Flip array upside down
  * 
  * @param {array} arrayInput input array
+ * @param {bool} headerRow [OPTIONAL] true by default, false if no headers low exist
  * @return an array upside down
  * @customfunction
  */
-function FlipArray(arrayInput) {
+function FlipArray(arrayInput, headerRow = true) {
   // check if input arguments
   if (arguments.length < 1) throw new Error("more arguments are required");
   if (arrayInput.map == null) throw new Error("arrayInput is not an array");
 
   var i = 0, arrayResult = [];
 
-  arrayResult[0] = arrayInput[0];
-  i++;
+  if (headerRow) {
+    // copy header row
+    arrayResult[0] = arrayInput[0];
+    i++;
+  }
 
   for (; i < arrayInput.length; i++) {
     var inverted = arrayInput.length - i;
@@ -1965,6 +2136,17 @@ function EMA(arrayInput, arrayColumn, lookBack) {
 
 // OHLCV index
 const DATE = 0, OPEN = 1, HIGH = 2, LOW = 3, CLOSE = 4, VOLUME = 5;
+
+
+// convert array-value [] into object-key-value {}
+function OptionObject(arrayOptions) {
+  var objOptions = {};
+  for (var i in arrayOptions) {
+    if (objOptions[arrayOptions[i][0]]) throw new Error("duplicated key is used for option object");
+    objOptions[arrayOptions[i][0]] = arrayOptions[i][1];
+  }
+  return objOptions;
+}
 
 // horizontal covariance
 function __HCovar(arrayFirst, colFirst, arraySecond, colSecond, start, length, population = false) {
