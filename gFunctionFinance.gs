@@ -9,7 +9,7 @@
  * https://blog.naver.com/bflownet
  * https://cafe.naver.com/laserinvestors
  * 
- * Version:      0.1.2
+ * Version:      0.1.3
  * 
  * Copyright:    (c) 2021- by JaeWook Choi
  * 
@@ -20,7 +20,7 @@
  * Example google sheet                                                           *
  * ********************************************************************************
  * 
- * https://docs.google.com/spreadsheets/d/e/2PACX-1vSko6N1fc9PE0uL8CRhHKuejyMSnNEoOGB-UQyQR8lEjbWMfBzsUmEYR1B0ewPh1-GTXH2BBFAYfCWK/pubhtml
+ * https://docs.google.com/spreadsheets/d/e/2PACX-1vT8t52IbdIemITsxdKT-ycoumGhANezBOWuxssksxkWUn2wSiBp1dl1LbXoOpsMiMpF_mJywLgw1sBf/pubhtml
  * 
  *
  * 
@@ -42,15 +42,18 @@
  * MACD() - Moving Average Convergence/Divergence (https://school.stockcharts.com/doku.php?id=technical_indicators:moving_average_convergence_divergence_macd)
  * MarketCompare() - Accumulation of the difference b/w Log return of Stock A and Log return of Stock B
  * MFI() - Money Flow Index (https://school.stockcharts.com/doku.php?id=technical_indicators:money_flow_index_mfi)
+ * Monthly() - return once a month result array
  * OBV() - On Balance Volume (https://school.stockcharts.com/doku.php?id=technical_indicators:on_balance__Volume_obv)
- * PerRatio() - Stock A / Stock B
+ * PR() - Stock A / Stock B = PriceRelative = RelativeStrength (https://school.stockcharts.com/doku.php?id=technical_indicators:price_relative)
  * PivotCalculation() - add-on for PivotPoint() to calculate s3, s2, s1, r1, r2, r3 ( PivotCalculation(PivotPoint()) )
  * PivotPoint() - pivot point and highest high, lowest low and close for the previous period
  * ROC() - Rate of Change (https://school.stockcharts.com/doku.php?id=technical_indicators:rate_of_change_roc_and_momentum)
  * RRG() - Relative Rotation Graph (https://www.relativerotationgraphs.com/)
+ * RRG2() - Relative Rotation Graph (https://school.stockcharts.com/doku.php?id=chart_analysis:rrg_charts)
  * RSI() - Relative Strength Index (https://school.stockcharts.com/doku.php?id=technical_indicators:relative_strength_index_rsi)
  * SMA() - Simple Moving Average (https://school.stockcharts.com/doku.php?id=technical_indicators:moving_averages)
  * Stochastics() - Stochastic Oscillator (https://school.stockcharts.com/doku.php?id=technical_indicators:stochastic_oscillator_fast_slow_and_full)
+ * Weekly() - return once a week result array
  * WilliamR() - Williams %R indicator (https://school.stockcharts.com/doku.php?id=technical_indicators:williams_r)
  * WVF() - William Vix Fix (https://www.tradingview.com/script/og7JPrRA-CM-Williams-Vix-Fix-Finds-Market-Bottoms/)
  * 
@@ -65,9 +68,163 @@
  *                        FlipArray(), optional headerRow input argument
  *                        OptionObject(), convert array-value [] into object-key-value {}
  * 0.1.2      2021.06.24  big bug fix in ADX()
- *   
+ * 0.1.3      2021.06.28  changed name of PerRatio() function to PR()
+ *                        changed RRG() formula to 100 + ( RS - Average{ RS } ) / Stdev{ RS }
+ *                        added RRG2() which is the chart school version of RRG (reverse engineered)
+ *                        added Weekly() and Monthly()
  */
 
+
+/**
+ * Weekly (assuming input array is ordered by date ascending (the oldest date is the first))
+ * 
+ * return an array with only data on the specified day every week
+ * 
+ * @param {array} arrayInput input array
+ * @param {number} columnDate index for the date column
+ * @param {number} day specify day to retrieve the data on (1 for Monday, 2 for Tuesday, 3 for Wednesday, 4 for Thursday, 5 for Friday)
+ * @return an array with only data on the specified day every week
+ * @customfunction
+ */
+function Weekly(arrayInput, columnDate, day) {
+  // check if input arguments
+  if (arguments.length < 3) throw new Error("more arguments are required");
+  if (arrayInput.map == null) throw new Error("arrayInput is not an array");
+  if (columnDate > arrayInput.length - 1) throw new Error("columnDate is set out of range");
+  if (day > 5 || day < 1) throw new Error("day is set out of range");
+
+  var i = 0, j = 0, arrayResult = [];
+
+  //
+  // Stage 1: Header copy
+  // 
+  // copy column headers
+  arrayResult[0] = arrayInput[0];
+  j++;
+
+  //
+  // Stage 2: Find the first index to check
+  //
+  var arraySkip = 0;
+  for (; i < arraySkip + 1; i++) {
+    // no calculation, just skip input array over
+
+    // skip empty data index
+    if (!arrayInput[i][columnDate]) arraySkip++;
+  }
+
+  //
+  // Stage 3: Check weekly reset and find the specified day
+  //
+  var prevDay = arrayInput[i][columnDate].getDay();
+  var picked = false;
+
+  if (prevDay == day) {
+    arrayResult[j] = arrayInput[i];
+    picked = true;
+    j++;
+  }
+  i++
+
+  for (; i < arrayInput.length; i++) {
+    var currentDay = arrayInput[i][columnDate].getDay();
+
+    if(currentDay < prevDay) picked = false;
+
+    if (currentDay == day || (currentDay > day && !picked)) {
+      arrayResult[j] = arrayInput[i];
+      picked = true;
+      j++;
+    }
+
+    prevDay = currentDay;
+  }
+
+  //
+  // Always add the last day if none added in the current week
+  //
+  if (prevDay < day) {
+      arrayResult[j] = arrayInput[i - 1];
+  }
+
+  return arrayResult;
+}
+
+/**
+ * Monthly (assuming input array is ordered by date ascending (the oldest date is the first))
+ * 
+ * return an array with only data on the specified date every month
+ * 
+ * @param {array} arrayInput input array
+ * @param {number} columnDate index for the date column
+ * @param {number} date specify day to retrieve the data on (1 for 1st day ~ 31 for the last day)
+ * @return an array with only data on the specified date every month
+ * @customfunction
+ */
+function Monthly(arrayInput, columnDate, date) {
+  // check if input arguments
+  if (arguments.length < 3) throw new Error("more arguments are required");
+  if (arrayInput.map == null) throw new Error("arrayInput is not an array");
+  if (columnDate > arrayInput.length - 1) throw new Error("columnDate is set out of range");
+  if (date > 31 || date < 1) throw new Error("date is set out of range");
+
+  var i = 0, j = 0, arrayResult = [];
+
+  //
+  // Stage 1: Header copy
+  // 
+  // copy column headers
+  arrayResult[0] = arrayInput[0];
+  j++;
+
+  //
+  // Stage 2: Find the first index to check
+  //
+  var arraySkip = 0;
+  for (; i < arraySkip + 1; i++) {
+    // no calculation, just skip input array over
+
+    // skip empty data index
+    if (!arrayInput[i][columnDate]) arraySkip++;
+  }
+
+  //
+  // Stage 3: Check weekly reset and find the specified day
+  //
+  var prevDate = arrayInput[i][columnDate].getDate();
+  var picked = false; 
+
+  if (prevDate == date) {
+    arrayResult[j] = arrayInput[i];
+    picked = true;
+    j++;
+  }
+  i++
+
+
+  for (; i < arrayInput.length; i++) {
+    var currentDate = arrayInput[i][columnDate].getDate();
+
+    if(currentDate < prevDate) picked = false;
+    
+    if (currentDate == date || (currentDate > date && !picked)) {
+      arrayResult[j] = arrayInput[i];
+      picked = true;
+      j++;
+    }
+
+    prevDate = currentDate;
+  }
+
+  //
+  // Always add the last date if none added in the current month
+  //
+  if (prevDate < date) {
+      arrayResult[j] = arrayInput[i - 1];
+  }
+
+  return arrayResult;
+}
 
 /**
  * FXCompare
@@ -85,9 +242,9 @@
 function FXCompare(arrayFirst, columnFirst, arraySecond, columnSecond, functionExpression) {
   // check if input arguments
   if (arguments.length < 5) throw new Error("more arguments are required");
-  if (arrayFirst.map == null) throw new Error("arrayInput is not an array");
-  if (arraySecond.map == null) throw new Error("arrayInput is not an array");
-  if (arrayFirst.length < 2) throw new Error("arrayInput length should be greater");
+  if (arrayFirst.map == null) throw new Error("arrayFirst is not an array");
+  if (arraySecond.map == null) throw new Error("arraySecond is not an array");
+  if (arrayFirst.length < 2) throw new Error("arrayFirst length should be greater");
   if (arrayFirst.length != arraySecond.length) throw new Error("horizontal (time serie) size of both input array should be the same");
   if (columnFirst > arrayFirst.length - 1) throw new Error("columnFirst is set out of range");
   if (columnSecond > arraySecond.length - 1) throw new Error("columnSecond is set out of range");
@@ -107,7 +264,7 @@ function FXCompare(arrayFirst, columnFirst, arraySecond, columnSecond, functionE
   i++;
 
   //
-  // Stage 2: Find the first index to start ROR at
+  // Stage 2: Find the first index to start FXC at
   //
   var arraySkip = 0;
   for (; i < arraySkip + 1; i++) {
@@ -153,7 +310,270 @@ function FXCompare(arrayFirst, columnFirst, arraySecond, columnSecond, functionE
 }
 
 /**
+ * Relative Rotation Graph 2
+ * 
+ * return an array with RRG (The terms "Relative Rotation Graph" and "RRG" are registered trademarks of RRG Research)
+ * 
+ * @param {array} arrayFirst first input array for target market, size of the input array should be more than 152
+ * @param {number} columnFirst index for the value column (usually close price) in the first array for target market
+ * @param {array} arraySecond second input array for benchmark market
+ * @param {number} columnSecond index for the value column (usually close price) in the second array for benchmark 
+ * @return an array with Relative Rotation Graph, [RS, RM]
+ * @customfunction
+ */
+function RRG2(arrayFirst, columnFirst, arraySecond, columnSecond) {
+  // check if input arguments
+  if (arguments.length < 4) throw new Error("more arguments are required");
+  if (arrayFirst.map == null) throw new Error("arrayFirst is not an array");
+  if (arraySecond.map == null) throw new Error("arraySecond is not an array");
+  if (arrayFirst.length != arraySecond.length) throw new Error("horizontal (time serie) size of both input array should be the same");
+  if (columnFirst > arrayFirst.length - 1) throw new Error("columnFirst is set out of range");
+  if (columnSecond > arraySecond.length - 1) throw new Error("columnSecond is set out of range");
+
+  var i = 0, arrayResult = [], rIndex = arrayFirst[0].length + arraySecond[0].length - 1;
+
+  //
+  // picked numbers below to make the result similar to chart school's RRG 
+  //
+  var lookBackFast = 50, lookBackSlow = 100, lookBackRM = 50;
+  var smoothingFast = 2 / (lookBackFast + 1), smoothingSlow = 2 / (lookBackSlow + 1), smoothingRM = 2 / (lookBackRM + 1);
+  var fastScale = (3 * lookBackSlow) / (2 * lookBackFast), slowScale = (100 * lookBackSlow) / (10 * lookBackFast);
+
+  if (arrayFirst.length < lookBackSlow + lookBackRM + 2) throw new Error("arrayFirst length should be greater");
+
+
+  //
+  // Stage 1: Header copy
+  // 
+  // copy column headers
+  arrayResult[0] = arrayFirst[0];
+  for (var j in arraySecond[0]) arrayResult[0].push(arraySecond[0][j]);
+
+  // add result column headers
+  arrayResult[0].push("PR", "RS", "RM");
+
+  i++;
+
+  //
+  // Stage 2: Find the first index to start ROR at
+  //
+  var arraySkip = 0;
+  for (; i < arraySkip + 1; i++) {
+    // no ROR calculation, just copy input array over
+    arrayResult[i] = arrayFirst[i];
+    for (var j in arraySecond[i]) arrayResult[i].push(arraySecond[i][j]);
+
+    // skip empty data index
+    if (!arrayFirst[i][columnFirst]) arraySkip++;
+  }
+
+  //
+  // RS ROC calculation start from the second PR 
+  //
+  arrayResult[i] = arrayFirst[i];
+  for (var j in arraySecond[i]) arrayResult[i].push(arraySecond[i][j]);
+
+  var PR = arrayFirst[i][columnFirst] / arraySecond[i][columnSecond], PRROC = 0;
+  arrayResult[i].push(PR);
+  i++
+
+
+  //
+  // Stage 3: skip till fast MA for PR and PRROC calculation
+  //
+  var arrayPR = [], arrayPRROC = [];
+  for (; i < lookBackFast + arraySkip + 1; i++) {
+    arrayResult[i] = arrayFirst[i];
+    for (var j in arraySecond[i]) arrayResult[i].push(arraySecond[i][j]);
+
+    PR = arrayFirst[i][columnFirst] / arraySecond[i][columnSecond];
+    PRROC = (PR / (arrayFirst[i - 1][columnFirst] / arraySecond[i - 1][columnSecond])) - 1;
+    arrayPR.push(PR);
+    arrayPRROC.push(PRROC);
+
+    arrayResult[i].push(PR);
+  }
+
+  //
+  // Stage 3: first SMA calculation for fast PR and fast PRROC 
+  //
+  arrayResult[i] = arrayFirst[i];
+  for (var j in arraySecond[i]) arrayResult[i].push(arraySecond[i][j]);
+
+  PR = arrayFirst[i][columnFirst] / arraySecond[i][columnSecond];
+  PRROC = (PR / (arrayFirst[i - 1][columnFirst] / arraySecond[i - 1][columnSecond])) - 1;
+
+  arrayPR.push(PR);
+  arrayPRROC.push(PRROC);
+
+  var fastPR = __VAvg(arrayPR);
+  var fastPRROC = __VAvg(arrayPRROC);
+
+  arrayResult[i].push(PR);
+  i++;
+
+
+  for (; i < lookBackSlow + arraySkip + 1; i++) {
+    arrayResult[i] = arrayFirst[i];
+    for (var j in arraySecond[i]) arrayResult[i].push(arraySecond[i][j]);
+
+    PR = arrayFirst[i][columnFirst] / arraySecond[i][columnSecond];
+    PRROC = (PR / (arrayFirst[i - 1][columnFirst] / arraySecond[i - 1][columnSecond])) - 1;
+
+    arrayPR.push(PR);
+    arrayPRROC.push(PRROC);
+
+    fastPR = smoothingFast * PR + (1 - smoothingFast) * fastPR;
+    fastPRROC = smoothingFast * PRROC + (1 - smoothingFast) * fastPRROC;
+
+    arrayResult[i].push(PR);
+  }
+
+  //
+  // Stage 4: first SMA calculation for slow PR and slow PRROC 
+  //
+  arrayResult[i] = arrayFirst[i];
+  for (var j in arraySecond[i]) arrayResult[i].push(arraySecond[i][j]);
+
+  PR = arrayFirst[i][columnFirst] / arraySecond[i][columnSecond];
+  PRROC = (PR / (arrayFirst[i - 1][columnFirst] / arraySecond[i - 1][columnSecond])) - 1;
+
+  arrayPR.push(PR);
+  arrayPRROC.push(PRROC);
+
+  fastPR = smoothingFast * PR + (1 - smoothingFast) * fastPR;
+  fastPRROC = smoothingFast * PRROC + (1 - smoothingFast) * fastPRROC;
+
+  var slowPR = __VAvg(arrayPR);
+  var slowPRROC = __VAvg(arrayPRROC);
+
+  var stdevRS = __VStdev(arrayPR);
+  var stdevPRROC = __VStdev(arrayPRROC);
+
+
+  var RS = 100 + fastScale * (fastPR - slowPR) / stdevRS;
+  var RM = 100 + slowScale * (fastPRROC - slowPRROC) / stdevPRROC;
+
+  var arrayRM = [];
+  arrayRM.push(RM)
+
+  arrayResult[i].push(PR, RS);
+
+  arrayPR.shift();
+  arrayPRROC.shift();
+
+  i++;
+
+
+  for (; i < lookBackSlow + lookBackRM + arraySkip + 1; i++) {
+    arrayResult[i] = arrayFirst[i];
+    for (var j in arraySecond[i]) arrayResult[i].push(arraySecond[i][j]);
+
+    PR = arrayFirst[i][columnFirst] / arraySecond[i][columnSecond];
+    PRROC = (PR / (arrayFirst[i - 1][columnFirst] / arraySecond[i - 1][columnSecond])) - 1;
+
+    arrayPR.push(PR);
+    arrayPRROC.push(PRROC);
+
+    fastPR = smoothingFast * PR + (1 - smoothingFast) * fastPR;
+    fastPRROC = smoothingFast * PRROC + (1 - smoothingFast) * fastPRROC;
+
+    slowPR = smoothingSlow * PR + (1 - smoothingSlow) * slowPR;
+    slowPRROC = smoothingSlow * PRROC + (1 - smoothingSlow) * slowPRROC;
+
+    stdevRS = __VStdev(arrayPR);
+    stdevPRROC = __VStdev(arrayPRROC);
+
+    RS = 100 + fastScale * (fastPR - slowPR) / stdevRS;
+    RM = 100 + slowScale * (fastPRROC - slowPRROC) / stdevPRROC;
+
+    arrayRM.push(RM)
+
+    arrayResult[i].push(PR, RS);
+
+    arrayPR.shift();
+    arrayPRROC.shift();
+  }
+
+  //
+  // Stage 5: first SMA calculation for RM
+  //
+  arrayResult[i] = arrayFirst[i];
+  for (var j in arraySecond[i]) arrayResult[i].push(arraySecond[i][j]);
+
+  PR = arrayFirst[i][columnFirst] / arraySecond[i][columnSecond];
+  PRROC = (PR / (arrayFirst[i - 1][columnFirst] / arraySecond[i - 1][columnSecond])) - 1;
+
+  arrayPR.push(PR);
+  arrayPRROC.push(PRROC);
+
+  fastPR = smoothingFast * PR + (1 - smoothingFast) * fastPR;
+  fastPRROC = smoothingFast * PRROC + (1 - smoothingFast) * fastPRROC;
+
+  slowPR = smoothingSlow * PR + (1 - smoothingSlow) * slowPR;
+  slowPRROC = smoothingSlow * PRROC + (1 - smoothingSlow) * slowPRROC;
+
+  stdevRS = __VStdev(arrayPR);
+  stdevPRROC = __VStdev(arrayPRROC);
+
+  RS = 100 + fastScale * (fastPR - slowPR) / stdevRS;
+  RM = 100 + slowScale * (fastPRROC - slowPRROC) / stdevPRROC;
+
+  arrayRM.push(RM)
+
+  var RMM = __VAvg(arrayRM);
+
+  arrayResult[i].push(PR, RS, RMM);
+
+  arrayPR.shift();
+  arrayPRROC.shift();
+  arrayRM.shift();
+
+  i++;
+
+  //
+  // Stage 6: 
+  //
+  for (; i < arrayFirst.length; i++) {
+    arrayResult[i] = arrayFirst[i];
+    for (var j in arraySecond[i]) arrayResult[i].push(arraySecond[i][j]);
+
+    PR = arrayFirst[i][columnFirst] / arraySecond[i][columnSecond];
+    PRROC = (PR / (arrayFirst[i - 1][columnFirst] / arraySecond[i - 1][columnSecond])) - 1;
+
+    arrayPR.push(PR);
+    arrayPRROC.push(PRROC);
+
+    fastPR = smoothingFast * PR + (1 - smoothingFast) * fastPR;
+    fastPRROC = smoothingFast * PRROC + (1 - smoothingFast) * fastPRROC;
+
+    slowPR = smoothingSlow * PR + (1 - smoothingSlow) * slowPR;
+    slowPRROC = smoothingSlow * PRROC + (1 - smoothingSlow) * slowPRROC;
+
+    stdevRS = __VStdev(arrayPR);
+    stdevPRROC = __VStdev(arrayPRROC);
+
+    RS = 100 + fastScale * (fastPR - slowPR) / stdevRS;
+    RM = 100 + slowScale * (fastPRROC - slowPRROC) / stdevPRROC;
+
+    arrayRM.push(RM)
+
+    RMM = smoothingRM * RM + (1 - smoothingRM) * RMM;
+
+    arrayResult[i].push(PR, RS, RMM);
+
+    arrayPR.shift();
+    arrayPRROC.shift();
+    arrayRM.shift();
+  }
+
+  return arrayResult;
+}
+
+
+/**
  * Relative Rotation Graph
+ * (assuming input array is ordered by date ascending (the oldest date is the first))
  * 
  * return an array with RRG (The terms "Relative Rotation Graph" and "RRG" are registered trademarks of RRG Research)
  * 
@@ -169,8 +589,8 @@ function FXCompare(arrayFirst, columnFirst, arraySecond, columnSecond, functionE
 function RRG(arrayFirst, columnFirst, arraySecond, columnSecond, lookBackWeek = 12, columnFirstDate = DATE) {
   // check if input arguments
   if (arguments.length < 4) throw new Error("more arguments are required");
-  if (arrayFirst.map == null) throw new Error("arrayInput is not an array");
-  if (arraySecond.map == null) throw new Error("arrayInput is not an array");
+  if (arrayFirst.map == null) throw new Error("arrayFirst is not an array");
+  if (arraySecond.map == null) throw new Error("arraySecond is not an array");
   if (arrayFirst.length < lookBackWeek * 10 + 10) throw new Error("arrayInput length should be greater (minimum 130 trading days)");
   if (arrayFirst.length != arraySecond.length) throw new Error("horizontal (time serie) size of both input array should be the same");
   if (columnFirst > arrayFirst.length - 1) throw new Error("columnFirst is set out of range");
@@ -230,18 +650,18 @@ function RRG(arrayFirst, columnFirst, arraySecond, columnSecond, lookBackWeek = 
 
       if (priceRelative.length == lookBackWeek) {
 
-        var RS = 101 + (priceRelative.slice(-1)[0] - __VAvg(priceRelative)) / __VStdev(priceRelative);
+        var RS = 100 + (priceRelative.slice(-1)[0] - __VAvg(priceRelative)) / __VStdev(priceRelative);
         arrayResult[i].push(RS);
         priceRelativeRS.push(RS);
         priceRelative.shift();
       }
 
       if (priceRelativeRS.length == lookBackWeek + 1) {
-        var RSROC = [];
+        var PRROC = [];
         for (var j = 0; j < lookBackWeek; j++) {
-          RSROC.push(100 * (priceRelativeRS[j + 1] / priceRelativeRS[j]) - 1);
+          PRROC.push(100 * (priceRelativeRS[j + 1] / priceRelativeRS[j]) - 1);
         }
-        arrayResult[i].push(101 + (RSROC.slice(-1)[0] - __VAvg(RSROC)) / __VStdev(RSROC));
+        arrayResult[i].push(100 + (PRROC.slice(-1)[0] - __VAvg(PRROC)) / __VStdev(PRROC));
         priceRelativeRS.shift();
       }
 
@@ -254,38 +674,38 @@ function RRG(arrayFirst, columnFirst, arraySecond, columnSecond, lookBackWeek = 
   // calculate RS and RM for the last day
   //
   if (i - 1 != indexWeekStart) {
-    var RS = 101 + (priceRelative.slice(-1)[0] - __VAvg(priceRelative)) / __VStdev(priceRelative);
+    var RS = 100 + (priceRelative.slice(-1)[0] - __VAvg(priceRelative)) / __VStdev(priceRelative);
     arrayResult[i - 1].push(RS);
     priceRelativeRS.push(RS);
 
-    var RSROC = [];
+    var PRROC = [];
     for (var j = 0; j < priceRelativeRS.length - 1; j++) {
-      RSROC.push(100 * (priceRelativeRS[j + 1] / priceRelativeRS[j]) - 1);
+      PRROC.push(100 * (priceRelativeRS[j + 1] / priceRelativeRS[j]) - 1);
     }
-    arrayResult[i - 1].push(101 + (RSROC.slice(-1)[0] - __VAvg(RSROC)) / __VStdev(RSROC));
+    arrayResult[i - 1].push(100 + (PRROC.slice(-1)[0] - __VAvg(PRROC)) / __VStdev(PRROC));
   }
 
   return arrayResult;
 }
 
 /**
- * PerRatio
+ * PR
  * 
- * return an array with ratio of first / second
+ * return an array with ratio of first / second (= price relative = relative strength)
  * 
  * @param {array} arrayFirst input array for the first
  * @param {number} columnFirst index for the value column (usually close price) in the first array
  * @param {array} arraySecond input array for the second
  * @param {number} columnSecond index for the value column (usually close price) in the second array
-* @return an array with ratio of first / second, [PerRatio]
+* @return an array with ratio of first / second, [PR]
  * @customfunction
  */
-function PerRatio(arrayFirst, columnFirst, arraySecond, columnSecond) {
+function PR(arrayFirst, columnFirst, arraySecond, columnSecond) {
   // check if input arguments
   if (arguments.length < 4) throw new Error("more arguments are required");
-  if (arrayFirst.map == null) throw new Error("arrayInput is not an array");
-  if (arraySecond.map == null) throw new Error("arrayInput is not an array");
-  if (arrayFirst.length < 2) throw new Error("arrayInput length should be greater");
+  if (arrayFirst.map == null) throw new Error("arrayFirst is not an array");
+  if (arraySecond.map == null) throw new Error("arraySecond is not an array");
+  if (arrayFirst.length < 2) throw new Error("arrayFirst length should be greater");
   if (arrayFirst.length != arraySecond.length) throw new Error("horizontal (time serie) size of both input array should be the same");
   if (columnFirst > arrayFirst.length - 1) throw new Error("columnFirst is set out of range");
   if (columnSecond > arraySecond.length - 1) throw new Error("columnSecond is set out of range");
@@ -300,12 +720,12 @@ function PerRatio(arrayFirst, columnFirst, arraySecond, columnSecond) {
   for (var j in arraySecond[0]) arrayResult[0].push(arraySecond[0][j]);
 
   // add result column headers
-  arrayResult[0].push("PerRatio");
+  arrayResult[0].push("PR");
 
   i++;
 
   //
-  // Stage 2: Find the first index to start ROR at
+  // Stage 2: Find the first index to start PR at
   //
   var arraySkip = 0;
   for (; i < arraySkip + 1; i++) {
@@ -348,9 +768,9 @@ function MarketCompare(arrayFirst, columnFirst, arraySecond, columnSecond) {
   // check if input arguments
   if (arguments.length < 4) throw new Error("more arguments are required");
 
-  if (arrayFirst.map == null) throw new Error("arrayInput is not an array");
-  if (arraySecond.map == null) throw new Error("arrayInput is not an array");
-  if (arrayFirst.length < 2) throw new Error("arrayInput length should be greater");
+  if (arrayFirst.map == null) throw new Error("arrayFirst is not an array");
+  if (arraySecond.map == null) throw new Error("arraySecond is not an array");
+  if (arrayFirst.length < 2) throw new Error("arrayFirst length should be greater");
   if (arrayFirst.length != arraySecond.length) throw new Error("horizontal (time serie) size of both input array should be the same");
   if (columnFirst > arrayFirst.length - 1) throw new Error("columnFirst is set out of range");
   if (columnSecond > arraySecond.length - 1) throw new Error("columnSecond is set out of range");
@@ -370,7 +790,7 @@ function MarketCompare(arrayFirst, columnFirst, arraySecond, columnSecond) {
   i++;
 
   //
-  // Stage 2: Find the first index to start ROR at
+  // Stage 2: Find the first index to start MC at
   //
   var arraySkip = 0;
   for (; i < arraySkip + 2; i++) {
@@ -1542,7 +1962,7 @@ function ADX(arrayInput, lookBackTR = 14, lookBackADX = 14) {
   dirIndexPlus = dirMovePlusMA / turRangeMA;
   dirIndexMinus = dirMoveMinusMA / turRangeMA;
 
-  dirIndex = Math.abs(dirIndexPlus - dirIndexMinus) / (dirIndexPlus + dirIndexMinus); 
+  dirIndex = Math.abs(dirIndexPlus - dirIndexMinus) / (dirIndexPlus + dirIndexMinus);
   arrayDirIndex.push(dirIndex);
 
   // SMA
