@@ -9,7 +9,7 @@
  * https://blog.naver.com/bflownet
  * https://cafe.naver.com/laserinvestors
  * 
- * Version:      0.1.3
+ * Version:      0.2.1
  * 
  * Copyright:    (c) 2021- by JaeWook Choi
  * 
@@ -20,13 +20,22 @@
  * Example google sheet                                                           *
  * ********************************************************************************
  * 
- * https://docs.google.com/spreadsheets/d/e/2PACX-1vT8t52IbdIemITsxdKT-ycoumGhANezBOWuxssksxkWUn2wSiBp1dl1LbXoOpsMiMpF_mJywLgw1sBf/pubhtml
+ * PART 1:
+ * 
+ * https://docs.google.com/spreadsheets/d/e/2PACX-1vSfxkCxsXcXpHJ5OzPxy9lH1j6IB512ZYoi9Er_Iq_AKllbk_vXKQb1_RbgDxqC-0i9xpBSG8AD9SmU/pubhtml
+ * 
+ * 
+ * PART 2:
+ * 
+ * https://docs.google.com/spreadsheets/d/1mW-ALSctb8CtMnIVoVUiNLhbgjfLil8rIavEWjx1Y-4/copy
  * 
  *
  * 
  * ********************************************************************************
- * * Table of Function Scripts  *
+ * * Table of Function Scripts                                                    *
  * ********************************************************************************
+ * 
+ * PART 1:
  * 
  * ADL() - Accumulation Distribution Line (https://school.stockcharts.com/doku.php?id=technical_indicators:accumulation_distribution_line)
  * ADX() - Average Directional Index (https://school.stockcharts.com/doku.php?id=technical_indicators:average_directional_index_adx)
@@ -57,12 +66,17 @@
  * WilliamR() - Williams %R indicator (https://school.stockcharts.com/doku.php?id=technical_indicators:williams_r)
  * WVF() - William Vix Fix (https://www.tradingview.com/script/og7JPrRA-CM-Williams-Vix-Fix-Finds-Market-Bottoms/)
  * 
+ * PART 2:
+ * 
+ * OptionFairPrice()
+ * 
  * 
  * The terms "Relative Rotation Graph" and "RRG" are registered trademarks of RRG Research(https://www.relativerotationgraphs.com/).
  * 
  * ********************************************************************************
  * Revision History                                                               *
  * ********************************************************************************
+ * 
  * 0.1.0      2021.06.06  Initial release
  * 0.1.1      2021.06.15  FXCompare() added
  *                        FlipArray(), optional headerRow input argument
@@ -70,10 +84,18 @@
  * 0.1.2      2021.06.24  big bug fix in ADX()
  * 0.1.3      2021.06.28  changed name of PerRatio() function to PR()
  *                        changed RRG() formula to 100 + ( RS - Average{ RS } ) / Stdev{ RS }
- *                        added RRG2() which is the chart school version of RRG (reverse engineered)
+ *                        added RRG2() which behaves similar to the chart school version of RRG
  *                        added Weekly() and Monthly()
+ * 0.2.1      2021.07.10  added OptionFairPrice() - option fair price and greeks calculation
+ * 
  */
 
+
+/***********************************************************************************
+ *                                                                                 *
+ * PART 1: Technical Indicators                                                    *
+ *                                                                                 *
+ ***********************************************************************************/
 
 /**
  * Weekly (assuming input array is ordered by date ascending (the oldest date is the first))
@@ -83,10 +105,11 @@
  * @param {array} arrayInput input array
  * @param {number} columnDate index for the date column
  * @param {number} day specify day to retrieve the data on (1 for Monday, 2 for Tuesday, 3 for Wednesday, 4 for Thursday, 5 for Friday)
+ * @param {number} currentWeek [OPTIONAL] false by default, specify whether or not to include the last day in the current week if it has not passed specified day 
  * @return an array with only data on the specified day every week
  * @customfunction
  */
-function Weekly(arrayInput, columnDate, day) {
+function Weekly(arrayInput, columnDate, day, currentWeek = false) {
   // check if input arguments
   if (arguments.length < 3) throw new Error("more arguments are required");
   if (arrayInput.map == null) throw new Error("arrayInput is not an array");
@@ -141,9 +164,9 @@ function Weekly(arrayInput, columnDate, day) {
   }
 
   //
-  // Always add the last day if none added in the current week
+  // add the last day if none is added in the current week
   //
-  if (prevDay < day) {
+  if (currentWeek && prevDay < day) {
       arrayResult[j] = arrayInput[i - 1];
   }
 
@@ -158,10 +181,11 @@ function Weekly(arrayInput, columnDate, day) {
  * @param {array} arrayInput input array
  * @param {number} columnDate index for the date column
  * @param {number} date specify day to retrieve the data on (1 for 1st day ~ 31 for the last day)
+ * @param {number} currentMonth [OPTIONAL] false by default, specify whether or not to include the last day in the current month if it has not passed specified date 
  * @return an array with only data on the specified date every month
  * @customfunction
  */
-function Monthly(arrayInput, columnDate, date) {
+function Monthly(arrayInput, columnDate, date, currentMonth = false) {
   // check if input arguments
   if (arguments.length < 3) throw new Error("more arguments are required");
   if (arrayInput.map == null) throw new Error("arrayInput is not an array");
@@ -217,9 +241,9 @@ function Monthly(arrayInput, columnDate, date) {
   }
 
   //
-  // Always add the last date if none added in the current month
+  // add the last date if none is added in the current month
   //
-  if (prevDate < date) {
+  if (currentMonth && prevDate < date) {
       arrayResult[j] = arrayInput[i - 1];
   }
 
@@ -2395,7 +2419,7 @@ function FlipArray(arrayInput, headerRow = true) {
 /**
  * HistoricalVolitality
  * 
- * return an array with historical volitality
+ * return an array with historical daily volitality
  * 
  * @param {array} arrayInput input array
  * @param {number} arrayColumn index for the value column (usually close price) in the input array
@@ -2666,4 +2690,120 @@ function __HMin(arrayInput, column, start, length) {
   }
 
   return min;
+}
+
+
+/***********************************************************************************
+ *                                                                                 *
+ * PART 2: Option Fair Price and Greeks                                            *
+ *                                                                                 *
+ ***********************************************************************************/
+
+/**
+ * Calculate option fair price based on black scholes equation and
+ * return an array of [call price, call delta, put price, put delta, call profit probability, put profit probability]
+ * and if greek is true, return additional arrays of [call delta, call gamma, call theta, call vega, call rho] in the second row and [put delta, put gamma, put theta, put vega, put rho] in the thrid row.
+ *
+ * @param {number or array} price Stock price
+ * @param {number or array} strike Striking price
+ * @param {number} days Number of day till expiry
+ * @param {number} volatility Implied voliatility (annulaized) in percentile
+ * @param {number} dividend Dividend yield (annulaized) in percentile 
+ * @param {number} riskfree Risk-free interest rate in percentile (10 year US Treasury note yield)
+ * @param {boolean} greeks Optional flag to indicate to calculate and return greeks (delta, gamma, theta, vega and rho) as well
+ * @return an array of [call price, call delta, put price, put delta, call profit probability, put profit probability],and if greek is true, return additional arrays of greeks as well
+ * @customfunction
+ */
+function OptionFairPrice(price, strike, days, volatility, dividend, riskfree, greeks = false) {
+  if (price.map) {
+    if (strike.map == null)  // The first argument price is an array input but the second argument strike is not an array input
+    {
+      return price.map(function (a) { return __OFP(a[0], strike, days, volatility, dividend, riskfree, greeks)[0]; });
+    }
+    else if (price.length == strike.length)  // Both the first argument price and the second argument strike are array inputs and the length of the both array is the same
+    {
+      return price.map(function (a, b) { return __OFP(a[0], strike[b][0], days, volatility, dividend, riskfree, greeks)[0]; });
+    }
+    else {
+      throw new Error("OptionFairPrice: Input data length of array price and array strike should be the same")
+    }
+  }
+  else if (strike.map) // The first argument price is not an array input but the second argument strike is an array input
+  {
+    return strike.map(function (b) { return __OFP(price, b[0], days, volatility, dividend, riskfree, greeks)[0]; });
+  }
+  else  // Non array argument inputs 
+  {
+    return __OFP(price, strike, days, volatility, dividend, riskfree, greeks);
+  }
+}
+
+// ver 0.5 Apr 26/2021
+function __OFP(price, strike, days, volatility, dividend, riskfree, greeks) {
+  var result = [];
+
+  //Check if there are six arguments
+  if (arguments.length !== 6 && arguments.length !== 7) { throw new Error("It should have 6 arguments or 7 arguments") };
+
+  var p = price;
+  var s = strike;
+  var t = days / 365;
+  var v = volatility;
+  var q = dividend;
+  var r = riskfree;
+
+  var d1 = (Math.log(p / s) + (r - q + v * v / 2) * t) / (v * Math.sqrt(t));
+  var d2 = d1 - (v * Math.sqrt(t));
+
+  var nd1 = __CDF(d1);
+  var nd2 = __CDF(d2);
+
+  var nd1_minus = __CDF(-1 * d1);
+  var nd2_minus = __CDF(-1 * d2);
+
+  function decimal(input, digit) { return Math.floor(input * digit) / digit; }
+
+  var call_price = p * Math.exp(-1 * q * t) * nd1 - s * Math.exp(-1 * r * t) * nd2;
+  call_price = (call_price < 0.01) ? 0.01 : decimal(call_price, 100);
+
+  var put_price = s * Math.exp(-1 * r * t) * nd2_minus - p * Math.exp(-1 * q * t) * nd1_minus;
+  put_price = (put_price < 0.01) ? 0.01 : decimal(put_price, 100);
+
+  var call_delta = Math.exp(-1 * q * t) * nd1;
+  var put_delta = Math.exp(-1 * q * t) * (nd1 - 1);
+
+  var call_profit_prob = 1 - __CDF(Math.log((s + call_price) / p) / (v * Math.sqrt(t)));
+  var put_profit_prob = __CDF(Math.log((s - put_price) / p) / (v * Math.sqrt(t)));
+
+  result.push([call_price, call_delta, put_price, put_delta, call_profit_prob, put_profit_prob]);
+
+  if (greeks) {
+    var gamma = decimal(Math.exp(-1 * Math.pow(d1, 2) / 2) / Math.sqrt(2 * Math.PI) * Math.exp(-1 * q * t) / (p * v * Math.sqrt(t)), 10000);
+
+    var call_theta = decimal((-1 * p * v * Math.exp(-1 * q * t) * Math.exp(-1 * d1 * d1 / 2) / (2 * Math.sqrt(t) * Math.sqrt(2 * Math.PI)) - r * s * Math.exp(-1 * r * t) * nd2 + q * p * Math.exp(-1 * q * t) * nd1) / 365, 10000);
+    var put_theta = decimal((-1 * p * v * Math.exp(-1 * q * t) * Math.exp(-1 * d1 * d1 / 2) / (2 * Math.sqrt(t) * Math.sqrt(2 * Math.PI)) + r * s * Math.exp(-1 * r * t) * nd2_minus - q * p * Math.exp(-1 * q * t) * nd1_minus) / 365, 10000);
+
+    var vega = decimal(p * Math.exp(-1 * q * t) * Math.sqrt(t) / 100 * Math.exp(-1 * Math.pow(d1, 2) / 2) / Math.sqrt(2 * Math.PI), 10000);
+
+    // var volga = vega * d1 * d2 / v;
+
+    var call_rho = decimal(s * t * Math.exp(-1 * r * t) * nd2 / 100, 10000);
+    var put_rho = decimal(-1 * s * t * Math.exp(-1 * r * t) * nd2_minus / 100, 10000);
+
+    result.push([call_delta, gamma, call_theta, vega, call_rho]);
+    result.push([put_delta, gamma, put_theta, vega, put_rho]);
+  }
+
+  return result;
+}
+
+// Cumulative Distribution Function Estimate
+function __CDF(d) {
+  var y = 1 / (1 + .2316419 * Math.abs(d));
+  var z = .3989423 * Math.exp(-((d * d) / 2));
+  var x = 1 - z * (1.330274 * Math.pow(y, 5) - 1.821256 * Math.pow(y, 4) + 1.781478 * Math.pow(y, 3) - .356538 * Math.pow(y, 2) + .3193815 * y);
+
+  var nd = Math.floor(x * 10000) / 10000;
+
+  return d < 0 ? 1 - nd : nd;
 }
