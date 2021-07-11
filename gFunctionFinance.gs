@@ -9,7 +9,7 @@
  * https://blog.naver.com/bflownet
  * https://cafe.naver.com/laserinvestors
  * 
- * Version:      0.2.1
+ * Version:      0.2.2
  * 
  * Copyright:    (c) 2021- by JaeWook Choi
  * 
@@ -22,7 +22,7 @@
  * 
  * PART 1:
  * 
- * https://docs.google.com/spreadsheets/d/e/2PACX-1vSfxkCxsXcXpHJ5OzPxy9lH1j6IB512ZYoi9Er_Iq_AKllbk_vXKQb1_RbgDxqC-0i9xpBSG8AD9SmU/pubhtml
+ * https://docs.google.com/spreadsheets/d/e/2PACX-1vSuTNiwkxz-C4NbbDpbFroccVOf8uV3_UqtIqJwtgOpn6zKLmTHfcXzveA3jnqrxtDVIgR3zGi6Mw2r/pubhtml
  * 
  * 
  * PART 2:
@@ -87,6 +87,7 @@
  *                        added RRG2() which behaves similar to the chart school version of RRG
  *                        added Weekly() and Monthly()
  * 0.2.1      2021.07.10  added OptionFairPrice() - option fair price and greeks calculation
+ * 0.2.2      2021.07.11  added lastValueOnly flag as the last input argument for Beta(), Correlation(), HV() and RSI() functions 
  * 
  */
 
@@ -365,7 +366,6 @@ function RRG2(arrayFirst, columnFirst, arraySecond, columnSecond) {
 
   if (arrayFirst.length < lookBackSlow + lookBackRM + 2) throw new Error("arrayFirst length should be greater");
 
-
   //
   // Stage 1: Header copy
   // 
@@ -401,7 +401,6 @@ function RRG2(arrayFirst, columnFirst, arraySecond, columnSecond) {
   arrayResult[i].push(PR);
   i++
 
-
   //
   // Stage 3: skip till fast MA for PR and PRROC calculation
   //
@@ -435,7 +434,6 @@ function RRG2(arrayFirst, columnFirst, arraySecond, columnSecond) {
 
   arrayResult[i].push(PR);
   i++;
-
 
   for (; i < lookBackSlow + arraySkip + 1; i++) {
     arrayResult[i] = arrayFirst[i];
@@ -487,7 +485,6 @@ function RRG2(arrayFirst, columnFirst, arraySecond, columnSecond) {
   arrayPRROC.shift();
 
   i++;
-
 
   for (; i < lookBackSlow + lookBackRM + arraySkip + 1; i++) {
     arrayResult[i] = arrayFirst[i];
@@ -593,7 +590,6 @@ function RRG2(arrayFirst, columnFirst, arraySecond, columnSecond) {
 
   return arrayResult;
 }
-
 
 /**
  * Relative Rotation Graph
@@ -860,10 +856,11 @@ function MarketCompare(arrayFirst, columnFirst, arraySecond, columnSecond) {
  * @param {number} columnSecond index for the value column (usually close price) in the second array
  * @param {number} lookBack [OPTIONAL] 126 by default, look back period for beta calculation, 22 for a monthly, 63 for a quarterly, 126 for semiannually, 252 for annually
  * @param {bool} logReturn [OPTIONAL] false by default, true for LOG return calculation, LN(currentPrice/prevPrice)
+ * @param {bool} lastValueOnly [OPTIONAL] false by default, true if only the last value calculated is wanted 
  * @return an array with beta, [RoR1, RoR2, beta]
  * @customfunction
  */
-function Beta(arrayFirst, columnFirst, arraySecond, columnSecond, lookBack = 126, logReturn = false) {
+function Beta(arrayFirst, columnFirst, arraySecond, columnSecond, lookBack = 126, logReturn = false, lastValueOnly = false) {
   // check if input arguments 
   if (arguments.length < 4) throw new Error("more arguments are required");
   if (arrayFirst.map == null) throw new Error("arrayFirst is not an array");
@@ -917,12 +914,12 @@ function Beta(arrayFirst, columnFirst, arraySecond, columnSecond, lookBack = 126
 
     arrayResult[i].push((logReturn ? Math.log(arrayFirst[i][columnFirst] / arrayFirst[i - 1][columnFirst]) : (arrayFirst[i][columnFirst] / arrayFirst[i - 1][columnFirst] - 1)));
     arrayResult[i].push((logReturn ? Math.log(arraySecond[i][columnSecond] / arraySecond[i - 1][columnSecond]) : (arraySecond[i][columnSecond] / arraySecond[i - 1][columnSecond] - 1)));
-
   }
 
   //
   // Stage 4: Calculate beta
   //
+  var beta = 0;
   for (; i < arrayFirst.length; i++) {
     arrayResult[i] = arrayFirst[i];
     for (var j in arraySecond[i]) arrayResult[i].push(arraySecond[i][j]);
@@ -930,8 +927,11 @@ function Beta(arrayFirst, columnFirst, arraySecond, columnSecond, lookBack = 126
     arrayResult[i].push((logReturn ? Math.log(arrayFirst[i][columnFirst] / arrayFirst[i - 1][columnFirst]) : (arrayFirst[i][columnFirst] / arrayFirst[i - 1][columnFirst] - 1)));
     arrayResult[i].push((logReturn ? Math.log(arraySecond[i][columnSecond] / arraySecond[i - 1][columnSecond]) : (arraySecond[i][columnSecond] / arraySecond[i - 1][columnSecond] - 1)));
 
-    arrayResult[i].push(__HCovar(arrayResult, rIndex + 1, arrayResult, rIndex + 2, i - lookBack + 1, lookBack) / __HVar(arrayResult, rIndex + 2, i - lookBack + 1, lookBack));
+    beta = __HCovar(arrayResult, rIndex + 1, arrayResult, rIndex + 2, i - lookBack + 1, lookBack) / __HVar(arrayResult, rIndex + 2, i - lookBack + 1, lookBack);
+    arrayResult[i].push(beta);
   }
+  
+  if (lastValueOnly) return beta;
 
   return arrayResult;
 }
@@ -947,10 +947,11 @@ function Beta(arrayFirst, columnFirst, arraySecond, columnSecond, lookBack = 126
  * @param {number} columnSecond index for the value column (usually close price) in the second array
  * @param {number} lookBack [OPTIONAL] 126 by default, look back period for correlation coefficient calculation, 22 for a monthly, 63 for a quarterly, 126 for semiannually, 252 for annually
  * @param {bool} logReturn [OPTIONAL] false by default, true for LOG return calculation, LN(currentPrice/prevPrice),
+ * @param {bool} lastValueOnly [OPTIONAL] false by default, true if only the last value calculated is wanted
  * @return an array with Correlation Coefficient, [ROR1, ROR2, CorrCoeff]
  * @customfunction
  */
-function Correlation(arrayFirst, columnFirst, arraySecond, columnSecond, lookBack = 126, logReturn = false) {
+function Correlation(arrayFirst, columnFirst, arraySecond, columnSecond, lookBack = 126, logReturn = false, lastValueOnly = false) {
   // check if input arguments 
   if (arguments.length < 4) throw new Error("more arguments are required");
   if (arrayFirst.map == null) throw new Error("arrayFirst is not an array");
@@ -1010,6 +1011,7 @@ function Correlation(arrayFirst, columnFirst, arraySecond, columnSecond, lookBac
   //
   // Stage 4: Calculate Correlation coefficient
   //
+  var corCoeff = 0;
   for (; i < arrayFirst.length; i++) {
     arrayResult[i] = arrayFirst[i];
     for (var j in arraySecond[i]) arrayResult[i].push(arraySecond[i][j]);
@@ -1017,8 +1019,11 @@ function Correlation(arrayFirst, columnFirst, arraySecond, columnSecond, lookBac
     arrayResult[i].push((logReturn ? Math.log(arrayFirst[i][columnFirst] / arrayFirst[i - 1][columnFirst]) : (arrayFirst[i][columnFirst] / arrayFirst[i - 1][columnFirst] - 1)));
     arrayResult[i].push((logReturn ? Math.log(arraySecond[i][columnSecond] / arraySecond[i - 1][columnSecond]) : (arraySecond[i][columnSecond] / arraySecond[i - 1][columnSecond] - 1)));
 
-    arrayResult[i].push(__HCovar(arrayResult, rIndex + 1, arrayResult, rIndex + 2, i - lookBack + 1, lookBack) / __HStdev(arrayResult, rIndex + 1, i - lookBack + 1, lookBack) / __HStdev(arrayResult, rIndex + 2, i - lookBack + 1, lookBack));
+    corCoeff = __HCovar(arrayResult, rIndex + 1, arrayResult, rIndex + 2, i - lookBack + 1, lookBack) / __HStdev(arrayResult, rIndex + 1, i - lookBack + 1, lookBack) / __HStdev(arrayResult, rIndex + 2, i - lookBack + 1, lookBack);
+    arrayResult[i].push(corCoeff);
   }
+
+  if (lastValueOnly) return corCoeff;
 
   return arrayResult;
 }
@@ -2116,10 +2121,11 @@ function ATR(arrayInput, lookBack = 14, averageMethod = 0) {
  * @param {array} arrayInput input array
  * @param {number} arrayColumn index for the value column (usually close price) in the input array
  * @param {number} lookBack [OPTIONAL] 14 by default, look back period for RSI calculation
+ * @param {bool} lastValueOnly [OPTIONAL] false by default, true if only the last value calculated is wanted
  * @return an array with RSI, [avgGain, avgLoss, RSI]
  * @customfunction
  */
-function RSI(arrayInput, arrayColumn, lookBack = 14) {
+function RSI(arrayInput, arrayColumn, lookBack = 14, lastValueOnly = false) {
   // check if input arguments
   if (arguments.length < 2) throw new Error("more arguments are required");
   if (arrayInput.map == null) throw new Error("arrayInput is not an array");
@@ -2170,6 +2176,8 @@ function RSI(arrayInput, arrayColumn, lookBack = 14) {
 
     arrayResult[i].push(relStrIndex[0], relStrIndex[1], relStrIndex[2]);
   }
+
+  if (lastValueOnly) return relStrIndex[2];
 
   return arrayResult;
 }
@@ -2425,10 +2433,11 @@ function FlipArray(arrayInput, headerRow = true) {
  * @param {number} arrayColumn index for the value column (usually close price) in the input array
  * @param {number} lookBack 22 by default, look back period for HV calculation
  * @param {bool} logReturn [OPTIONAL] false by default, true for LOG return calculation, LN(currentPrice/prevPrice),
+ * @param {bool} lastValueOnly [OPTIONAL] false by default, true if only the last value calculated is wanted
  * @return an array with HV, [HV]
  * @customfunction
  */
-function HV(arrayInput, arrayColumn, lookBack = 22, logReturn = false, population = false) {
+function HV(arrayInput, arrayColumn, lookBack = 22, logReturn = false, population = false, lastValueOnly = false) {
   // check if input arguments
   if (arguments.length < 2) throw new Error("more arguments are required");
   if (arrayInput.map == null) throw new Error("arrayInput is not an array");
@@ -2454,9 +2463,13 @@ function HV(arrayInput, arrayColumn, lookBack = 22, logReturn = false, populatio
 
   for (; i < indexAt; i++);
 
+  var historicalVol = 0;
   for (; i < arrayResult.length; i++) {
-    arrayResult[i].push(__HStdev(arrayResult, rIndex + 1, i - lookBack + 1, lookBack));
+    historicalVol = __HStdev(arrayResult, rIndex + 1, i - lookBack + 1, lookBack);
+    arrayResult[i].push(historicalVol);
   }
+
+  if (lastValueOnly) return historicalVol;
 
   return arrayResult;
 }
