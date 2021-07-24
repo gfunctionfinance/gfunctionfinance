@@ -9,7 +9,7 @@
  * https://blog.naver.com/bflownet
  * https://cafe.naver.com/laserinvestors
  * 
- * Version:      0.2.2
+ * Version:      0.2.3
  * 
  * Copyright:    (c) 2021- by JaeWook Choi
  * 
@@ -22,7 +22,7 @@
  * 
  * PART 1:
  * 
- * https://docs.google.com/spreadsheets/d/e/2PACX-1vSuTNiwkxz-C4NbbDpbFroccVOf8uV3_UqtIqJwtgOpn6zKLmTHfcXzveA3jnqrxtDVIgR3zGi6Mw2r/pubhtml
+ * https://docs.google.com/spreadsheets/d/e/2PACX-1vRxd87Yu5C6qneIgUs2XUhnoCAe11eipQ50wG30klV9LY9M5WArbyKmMs8JlPUYLQFarwhk9ycHD4IQ/pubhtml
  * 
  * 
  * PART 2:
@@ -50,6 +50,7 @@
  * HV() - Historical Volitality
  * MACD() - Moving Average Convergence/Divergence (https://school.stockcharts.com/doku.php?id=technical_indicators:moving_average_convergence_divergence_macd)
  * MarketCompare() - Accumulation of the difference b/w Log return of Stock A and Log return of Stock B
+ * MarketForecast() - TD MarketForecast indicator (https://tickertape.tdameritrade.com/trading/futures-4-fun-a-tool-to-help-spot-tops-bottoms-15303)
  * MFI() - Money Flow Index (https://school.stockcharts.com/doku.php?id=technical_indicators:money_flow_index_mfi)
  * Monthly() - return once a month result array
  * OBV() - On Balance Volume (https://school.stockcharts.com/doku.php?id=technical_indicators:on_balance__Volume_obv)
@@ -88,7 +89,7 @@
  *                        added Weekly() and Monthly()
  * 0.2.1      2021.07.10  added OptionFairPrice() - option fair price and greeks calculation
  * 0.2.2      2021.07.11  added lastValueOnly flag as the last input argument for Beta(), Correlation(), HV() and RSI() functions 
- * 
+ * 0.2.3      2021.07.21  added MarketForecast indicator
  */
 
 
@@ -97,6 +98,197 @@
  * PART 1: Technical Indicators                                                    *
  *                                                                                 *
  ***********************************************************************************/
+
+
+/**
+ * MarketForecast
+ * 
+ * return an array with MarketForecast
+ * 
+ * @param {array} arrayInput input array, firt 6 column of the input array should be DOHLCV format (Date, Open, High, Low, Close, Volume)
+ * @param {number} lookBackFast [OPTIONAL] 3 by default, look back period for near term
+ * @param {number} lookBackMomentum [OPTIONAL] 5 by default, look back period for momentum
+ * @param {number} lookBackSlow [OPTIONAL] 31 by default, look back period for intermediate term
+ * @return an array with MarketForecast, [SMA2(fast%N), Momentum, SMA5(fast%I)]
+ * @customfunction
+ */
+function MarketForecast(arrayInput, lookBackFast = 3, lookBackMomentum = 5, lookBackSlow = 31) {
+  // check if input arguments
+  if (arguments.length < 1) throw new Error("more arguments are required");
+  if (arrayInput.map == null) throw new Error("arrayInput is not an array");
+  if (lookBackFast > lookBackMomentum) throw new Error("lookBackFast should be equal to or smaller than lookBackMomentum");
+  if (lookBackMomentum > lookBackSlow) throw new Error("lookBackMomentum should be equal to or smaller than lookBackSlow");
+
+  var i = 0, arrayResult = [], rIndex = arrayInput[0].length - 1;
+  var fastSMA = 2, slowSMA = 5;
+
+  if (arrayInput.length < lookBackSlow + slowSMA - 1) throw new Error("arrayInput length should be greater");
+
+  //
+  // Stage 1: Header copy
+  // 
+  // copy column headers
+  arrayResult[0] = arrayInput[0];
+
+  // add result column headers
+  arrayResult[0].push("Near-term", "Momentum", "Intermediate");
+  i++;
+
+
+  //
+  // Stage 2: Find the first index to start Fast %N at
+  //
+  var arraySkip = 0;
+  for (; i < arraySkip + lookBackFast; i++) {
+    // no calculation, just copy input array over
+    arrayResult[i] = arrayInput[i];
+
+    // skip empty data index
+    if (!arrayInput[i][CLOSE]) arraySkip++;
+  }
+
+  var lbStart = arraySkip + 1;
+
+  var indexFastAt = lbStart + lookBackFast - 1;
+  var indexMomentumAt = lbStart + lookBackMomentum - 1;
+  var indexSlowAt = lbStart + lookBackSlow - 1;
+
+  //
+  // fast%N (Near-term) calculations
+  //
+  var highhighFast = 0, lowlowFast = 0, fastN = 0, arrayFastN = [];
+  for (; i < indexFastAt + fastSMA - 1; i++) {
+    arrayResult[i] = arrayInput[i];
+
+    highhighFast = __HMax(arrayResult, HIGH, i - lookBackFast + 1, lookBackFast);
+    lowlowFast = __HMin(arrayResult, LOW, i - lookBackFast + 1, lookBackFast);
+
+    // fast%N
+    fastN = (arrayResult[i][CLOSE] - lowlowFast) / (highhighFast - lowlowFast) * 100;
+
+    // arrayResult[i].push(fastN);
+    arrayFastN.push(fastN);
+  }
+
+  for (; i < indexMomentumAt; i++) {
+    arrayResult[i] = arrayInput[i];
+
+    highhighFast = __HMax(arrayResult, HIGH, i - lookBackFast + 1, lookBackFast);
+    lowlowFast = __HMin(arrayResult, LOW, i - lookBackFast + 1, lookBackFast);
+
+    // fast%N
+    fastN = (arrayResult[i][CLOSE] - lowlowFast) / (highhighFast - lowlowFast) * 100;
+    
+    // arrayResult[i].push(fastN);
+    arrayFastN.push(fastN);
+    
+    arrayResult[i].push(__VAvg(arrayFastN));
+    arrayFastN.shift();
+  }
+
+  //
+  // momentum calculations
+  //
+  var highhighMomentum = 0, lowlowMomentum =0; lowlow2 = 0;
+  for (; i < indexSlowAt; i++) {
+    arrayResult[i] = arrayInput[i];
+
+    highhighFast = __HMax(arrayResult, HIGH, i - lookBackFast + 1, lookBackFast);
+    lowlowFast = __HMin(arrayResult, LOW, i - lookBackFast + 1, lookBackFast);
+
+    // fast%N
+    fastN = (arrayResult[i][CLOSE] - lowlowFast) / (highhighFast - lowlowFast) * 100;
+    
+    // arrayResult[i].push(fastN);
+    arrayFastN.push(fastN);
+    
+    arrayResult[i].push(__VAvg(arrayFastN));
+    arrayFastN.shift();
+
+    highhighMomentum = __HMax(arrayResult, HIGH, i - lookBackMomentum + 1, lookBackMomentum);
+    lowlowMomentum = __HMin(arrayResult, LOW, i - lookBackMomentum + 1, lookBackMomentum);
+    lowlow2 = __HMin(arrayResult, LOW, i - 2 + 1, 2);
+
+    // momentum
+    arrayResult[i].push((arrayResult[i][CLOSE] - lowlow2) / (highhighMomentum - lowlowMomentum) * 100);
+  }
+
+  //
+  // fast%I (Intermediate) calculation
+  //
+  var highhighSlow = 0, lowlowSlow = 0, fastI = 0, arrayFastI = [];
+  // the rest calcuation
+  for (; i < indexSlowAt + slowSMA - 1; i++) {
+    arrayResult[i] = arrayInput[i];
+
+    highhighFast = __HMax(arrayResult, HIGH, i - lookBackFast + 1, lookBackFast);
+    lowlowFast = __HMin(arrayResult, LOW, i - lookBackFast + 1, lookBackFast);
+
+    // fast%N
+    fastN = (arrayResult[i][CLOSE] - lowlowFast) / (highhighFast - lowlowFast) * 100;
+    
+    // arrayResult[i].push(fastN);
+    arrayFastN.push(fastN);
+    
+    arrayResult[i].push(__VAvg(arrayFastN));
+    arrayFastN.shift();
+
+    highhighMomentum = __HMax(arrayResult, HIGH, i - lookBackMomentum + 1, lookBackMomentum);
+    lowlowMomentum = __HMin(arrayResult, LOW, i - lookBackMomentum + 1, lookBackMomentum);
+    lowlow2 = __HMin(arrayResult, LOW, i - 2 + 1, 2);
+
+    // momentum
+    arrayResult[i].push((arrayResult[i][CLOSE] - lowlow2) / (highhighMomentum - lowlowMomentum) * 100);
+
+    highhighSlow = __HMax(arrayResult, HIGH, i - lookBackSlow + 1, lookBackSlow);
+    lowlowSlow = __HMin(arrayResult, LOW, i - lookBackSlow + 1, lookBackSlow);
+
+    // fast%I
+    fastI = (arrayResult[i][CLOSE] - lowlowSlow) / (highhighSlow - lowlowSlow) * 100;
+
+    // arrayResult[i].push(fastI);
+    arrayFastI.push(fastI);
+  }
+
+   var highhighSlow = 0, lowlowSlow = 0;
+  // the rest calcuation
+  for (; i < arrayInput.length; i++) {
+    arrayResult[i] = arrayInput[i];
+
+    highhighFast = __HMax(arrayResult, HIGH, i - lookBackFast + 1, lookBackFast);
+    lowlowFast = __HMin(arrayResult, LOW, i - lookBackFast + 1, lookBackFast);
+
+    // fast%N
+    fastN = (arrayResult[i][CLOSE] - lowlowFast) / (highhighFast - lowlowFast) * 100;
+    
+    // arrayResult[i].push(fastN);
+    arrayFastN.push(fastN);
+    
+    arrayResult[i].push(__VAvg(arrayFastN));
+    arrayFastN.shift();
+
+    highhighMomentum = __HMax(arrayResult, HIGH, i - lookBackMomentum + 1, lookBackMomentum);
+    lowlowMomentum = __HMin(arrayResult, LOW, i - lookBackMomentum + 1, lookBackMomentum);
+    lowlow2 = __HMin(arrayResult, LOW, i - 2 + 1, 2);
+
+    // momentum
+    arrayResult[i].push((arrayResult[i][CLOSE] - lowlow2) / (highhighMomentum - lowlowMomentum) * 100);
+
+    highhighSlow = __HMax(arrayResult, HIGH, i - lookBackSlow + 1, lookBackSlow);
+    lowlowSlow = __HMin(arrayResult, LOW, i - lookBackSlow + 1, lookBackSlow);
+
+    // fast%I
+    fastI = (arrayResult[i][CLOSE] - lowlowSlow) / (highhighSlow - lowlowSlow) * 100;
+
+    // arrayResult[i].push(fastI);
+    arrayFastI.push(fastI);
+
+    arrayResult[i].push(__VAvg(arrayFastI));
+    arrayFastI.shift();
+  }
+
+  return arrayResult;
+}
 
 /**
  * Weekly (assuming input array is ordered by date ascending (the oldest date is the first))
@@ -1688,7 +1880,7 @@ function Stochastics(arrayInput, lookBackFast = 14, smoothingFast = 3, smoothing
   //
   var arraySkip = 0;
   for (; i < arraySkip + lookBackFast; i++) {
-    // no MACD calculation, just copy input array over
+    // no Stochastics calculation, just copy input array over
     arrayResult[i] = arrayInput[i];
 
     // skip empty data index
